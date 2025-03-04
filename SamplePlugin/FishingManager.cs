@@ -54,6 +54,12 @@ namespace OceanFishingAutomator
         private readonly TugReader tugReader;
         private readonly IClientState clientState;
 
+        // Events for logging system
+        public event Action<string> OnStatusChanged;
+        public event Action<Fish> OnFishCaught;
+        public event Action<uint, string> OnBaitChanged;
+        public event Action<string> OnTugDetected;
+
         /// <summary>
         /// Initializes a new instance of the FishingManager.
         /// </summary>
@@ -84,19 +90,19 @@ namespace OceanFishingAutomator
         {
             if (!config.EnableAutomation)
             {
-                CurrentActionStatus = "Automation is disabled in settings.";
+                UpdateStatus("Automation is disabled in settings.");
                 return;
             }
 
             if (!IsInValidRoute)
             {
-                CurrentActionStatus = "Not in a valid ocean fishing route.";
+                UpdateStatus("Not in a valid ocean fishing route.");
                 return;
             }
 
             IsAutomationRunning = true;
             State = FishingState.Idle;
-            CurrentActionStatus = "Automation started. Preparing to cast...";
+            UpdateStatus("Automation started. Preparing to cast...");
             Plugin.Log.Debug("Fishing automation started.");
         }
 
@@ -107,7 +113,7 @@ namespace OceanFishingAutomator
         {
             IsAutomationRunning = false;
             State = FishingState.Idle;
-            CurrentActionStatus = "Automation stopped.";
+            UpdateStatus("Automation stopped.");
             Plugin.Log.Debug("Fishing automation stopped.");
         }
 
@@ -121,7 +127,7 @@ namespace OceanFishingAutomator
             Plugin.Log.Debug($"Route changed to {CurrentRoute.RouteName}, zone {zoneIndex + 1}");
 
             // Update UI to show the new route information
-            CurrentActionStatus = $"Now at {CurrentRoute.RouteName}, zone {zoneIndex + 1}";
+            UpdateStatus($"Now at {CurrentRoute.RouteName}, zone {zoneIndex + 1}");
         }
 
         /// <summary>
@@ -132,18 +138,20 @@ namespace OceanFishingAutomator
             if (isSpectralActive)
             {
                 Plugin.Log.Debug("Spectral current started");
-                CurrentActionStatus = "Spectral current active! Switching to spectral bait...";
+                UpdateStatus("Spectral current active! Switching to spectral bait...");
 
                 // Could auto-switch bait here
                 CurrentBaitId = CurrentRoute.SpectralBait;
+                OnBaitChanged?.Invoke(CurrentBaitId, $"Spectral Bait ({CurrentBaitId})");
             }
             else
             {
                 Plugin.Log.Debug("Spectral current ended");
-                CurrentActionStatus = "Spectral current ended. Reverting to normal bait...";
+                UpdateStatus("Spectral current ended. Reverting to normal bait...");
 
                 // Could auto-switch bait here
                 CurrentBaitId = CurrentRoute.NormalBait;
+                OnBaitChanged?.Invoke(CurrentBaitId, $"Normal Bait ({CurrentBaitId})");
             }
         }
 
@@ -163,12 +171,12 @@ namespace OceanFishingAutomator
                 if (IsInValidRoute)
                 {
                     CurrentRoute = Routes.GetRouteByIndex(routeTracker.CurrentRoute);
-                    CurrentActionStatus = $"Entered {CurrentRoute.RouteName}, zone {routeTracker.CurrentZone + 1}";
+                    UpdateStatus($"Entered {CurrentRoute.RouteName}, zone {routeTracker.CurrentZone + 1}");
                     Plugin.Log.Debug($"Entered valid ocean fishing route: {CurrentRoute.RouteName}");
                 }
                 else
                 {
-                    CurrentActionStatus = "Not in ocean fishing.";
+                    UpdateStatus("Not in ocean fishing.");
                     Plugin.Log.Debug("Exited ocean fishing route.");
 
                     if (IsAutomationRunning)
@@ -196,6 +204,15 @@ namespace OceanFishingAutomator
         }
 
         /// <summary>
+        /// Updates the current status and triggers the status changed event
+        /// </summary>
+        public void UpdateStatus(string status)
+        {
+            CurrentActionStatus = status;
+            OnStatusChanged?.Invoke(status);
+        }
+
+        /// <summary>
         /// Updates the fishing state machine.
         /// </summary>
         private void OnUpdate(object sender, ElapsedEventArgs e)
@@ -212,7 +229,7 @@ namespace OceanFishingAutomator
             // Don't continue if we're not in a valid route anymore
             if (!IsInValidRoute)
             {
-                CurrentActionStatus = "Not in a valid ocean fishing route. Stopping automation.";
+                UpdateStatus("Not in a valid ocean fishing route. Stopping automation.");
                 StopAutomation();
                 return;
             }
@@ -220,11 +237,11 @@ namespace OceanFishingAutomator
             switch (State)
             {
                 case FishingState.Idle:
-                    CurrentActionStatus = "Casting...";
+                    UpdateStatus("Casting...");
                     State = FishingState.Casting;
                     break;
                 case FishingState.Casting:
-                    CurrentActionStatus = "Waiting for bite...";
+                    UpdateStatus("Waiting for bite...");
                     State = FishingState.WaitingForBite;
                     break;
                 case FishingState.WaitingForBite:
@@ -244,28 +261,31 @@ namespace OceanFishingAutomator
                             LastTugStrength = "Unknown";
                             break;
                     }
-                    CurrentActionStatus = $"Bite detected: {LastTugStrength} tug. Reeling in...";
+                    UpdateStatus($"Bite detected: {LastTugStrength} tug. Reeling in...");
+                    OnTugDetected?.Invoke(LastTugStrength);
                     State = FishingState.Reeling;
                     break;
                 case FishingState.Reeling:
-                    CurrentActionStatus = (LastTugStrength == "Light") ? "Using Precision Hookset" : "Using Powerful Hookset";
+                    UpdateStatus((LastTugStrength == "Light") ? "Using Precision Hookset" : "Using Powerful Hookset");
                     System.Threading.Thread.Sleep(500);
                     var fishList = FishDataCache.GetFish();
                     if (fishList.Count > 0)
                     {
                         LastCaughtFish = fishList[0];
-                        CurrentActionStatus = $"Caught: {LastCaughtFish.FishName}";
+                        UpdateStatus($"Caught: {LastCaughtFish.FishName}");
+                        OnFishCaught?.Invoke(LastCaughtFish);
                     }
                     else
                     {
-                        CurrentActionStatus = "Caught: Unknown Fish";
+                        UpdateStatus("Caught: Unknown Fish");
+                        OnFishCaught?.Invoke(null);
                     }
                     State = FishingState.Mooching;
                     break;
                 case FishingState.Mooching:
                     if (config.UseAutoMooch)
                     {
-                        CurrentActionStatus = "Attempting Mooch...";
+                        UpdateStatus("Attempting Mooch...");
                         State = FishingState.Reeling;
                     }
                     else
@@ -274,7 +294,7 @@ namespace OceanFishingAutomator
                     }
                     break;
                 case FishingState.Completed:
-                    CurrentActionStatus = "Cycle complete. Moving to next stop...";
+                    UpdateStatus("Cycle complete. Moving to next stop...");
                     CurrentRoute = Routes.GetNextRoute(CurrentRoute);
                     State = FishingState.Idle;
                     break;
