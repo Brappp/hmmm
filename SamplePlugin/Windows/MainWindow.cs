@@ -1,106 +1,197 @@
-﻿using System;
-using System.Numerics;
-using Dalamud.Interface.Utility;
-using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using ImGuiNET;
-using Lumina.Excel.Sheets;
+using OceanFishingAutomator;
+using OceanFishingAutomator.Definitions;
+using System.Numerics;
 
-namespace SamplePlugin.Windows;
-
-public class MainWindow : Window, IDisposable
+namespace OceanFishingAutomator.UI
 {
-    private string GoatImagePath;
-    private Plugin Plugin;
-
-    // We give this window a hidden ID using ##
-    // So that the user will see "My Amazing Window" as window title,
-    // but for ImGui the ID is "My Amazing Window##With a hidden ID"
-    public MainWindow(Plugin plugin, string goatImagePath)
-        : base("My Amazing Window##With a hidden ID", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
+    public class MainWindow : Window, System.IDisposable
     {
-        SizeConstraints = new WindowSizeConstraints
+        private readonly Plugin plugin;
+        private readonly FishingManager fishingManager;
+        private readonly Configuration config;
+        private bool showConfigSection = false;
+
+        public MainWindow(Plugin plugin, FishingManager fishingManager)
+            : base("Ocean Fishing Automator")
         {
-            MinimumSize = new Vector2(375, 330),
-            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
-        };
-
-        GoatImagePath = goatImagePath;
-        Plugin = plugin;
-    }
-
-    public void Dispose() { }
-
-    public override void Draw()
-    {
-        // Do not use .Text() or any other formatted function like TextWrapped(), or SetTooltip().
-        // These expect formatting parameter if any part of the text contains a "%", which we can't
-        // provide through our bindings, leading to a Crash to Desktop.
-        // Replacements can be found in the ImGuiHelpers Class
-        ImGui.TextUnformatted($"The random config bool is {Plugin.Configuration.SomePropertyToBeSavedAndWithADefault}");
-
-        if (ImGui.Button("Show Settings"))
-        {
-            Plugin.ToggleConfigUI();
+            this.plugin = plugin;
+            this.fishingManager = fishingManager;
+            this.config = plugin.Configuration;
+            Size = new Vector2(420, 350);
+            SizeCondition = ImGuiCond.Always;
         }
 
-        ImGui.Spacing();
-
-        // Normally a BeginChild() would have to be followed by an unconditional EndChild(),
-        // ImRaii takes care of this after the scope ends.
-        // This works for all ImGui functions that require specific handling, examples are BeginTable() or Indent().
-        using (var child = ImRaii.Child("SomeChildWithAScrollbar", Vector2.Zero, true))
+        public override void Draw()
         {
-            // Check if this child is drawing
-            if (child.Success)
+            // Status section
+            if (ImGui.BeginTabBar("##Tabs"))
             {
-                ImGui.TextUnformatted("Have a goat:");
-                var goatImage = Plugin.TextureProvider.GetFromFile(GoatImagePath).GetWrapOrDefault();
-                if (goatImage != null)
+                if (ImGui.BeginTabItem("Status"))
                 {
-                    using (ImRaii.PushIndent(55f))
-                    {
-                        ImGui.Image(goatImage.ImGuiHandle, new Vector2(goatImage.Width, goatImage.Height));
-                    }
+                    DrawStatusTab();
+                    ImGui.EndTabItem();
+                }
+
+                if (ImGui.BeginTabItem("Settings"))
+                {
+                    DrawSettingsTab();
+                    ImGui.EndTabItem();
+                }
+
+                ImGui.EndTabBar();
+            }
+        }
+
+        private void DrawStatusTab()
+        {
+            ImGui.Text($"Status: {fishingManager.CurrentActionStatus}");
+            if (fishingManager.IsInValidRoute)
+            {
+                ImGui.TextColored(new Vector4(0, 1, 0, 1), "✓ In valid ocean fishing zone");
+            }
+            else
+            {
+                ImGui.TextColored(new Vector4(1, 0, 0, 1), "✗ Not in a valid ocean fishing zone");
+            }
+
+            ImGui.Separator();
+
+            // Route information
+            ImGui.Text($"Current Route: {fishingManager.CurrentRoute.RouteName}");
+            ImGui.Text($"Normal Bait: {fishingManager.CurrentRoute.NormalBait}");
+            ImGui.Text($"Spectral Bait: {fishingManager.CurrentRoute.SpectralBait}");
+
+            ImGui.Separator();
+
+            // Fishing information
+            ImGui.Text($"Last Tug Strength: {fishingManager.LastTugStrength}");
+            if (fishingManager.LastCaughtFish != null)
+                ImGui.Text($"Last Caught Fish: {fishingManager.LastCaughtFish.FishName}");
+            else
+                ImGui.Text("No fish caught yet.");
+
+            ImGui.Separator();
+
+            // Control buttons
+            if (fishingManager.IsAutomationRunning)
+            {
+                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1.0f));
+                if (ImGui.Button("Stop Fishing", new Vector2(ImGui.GetContentRegionAvail().X, 30)))
+                {
+                    fishingManager.StopAutomation();
+                }
+                ImGui.PopStyleColor();
+            }
+            else
+            {
+                bool canStart = fishingManager.IsInValidRoute && config.EnableAutomation;
+
+                if (!canStart)
+                {
+                    ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.5f, 0.5f, 0.5f, 1.0f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.5f, 0.5f, 0.5f, 1.0f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.5f, 0.5f, 0.5f, 1.0f));
                 }
                 else
                 {
-                    ImGui.TextUnformatted("Image not found.");
+                    ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.2f, 0.8f, 0.2f, 1.0f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.3f, 0.9f, 0.3f, 1.0f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.1f, 0.7f, 0.1f, 1.0f));
                 }
 
-                ImGuiHelpers.ScaledDummy(20.0f);
-
-                // Example for other services that Dalamud provides.
-                // ClientState provides a wrapper filled with information about the local player object and client.
-
-                var localPlayer = Plugin.ClientState.LocalPlayer;
-                if (localPlayer == null)
+                if (ImGui.Button("Start Fishing", new Vector2(ImGui.GetContentRegionAvail().X, 30)) && canStart)
                 {
-                    ImGui.TextUnformatted("Our local player is currently not loaded.");
-                    return;
+                    fishingManager.StartAutomation();
                 }
 
-                if (!localPlayer.ClassJob.IsValid)
-                {
-                    ImGui.TextUnformatted("Our current job is currently not valid.");
-                    return;
-                }
+                ImGui.PopStyleColor(3);
 
-                // ExtractText() should be the preferred method to read Lumina SeStrings,
-                // as ToString does not provide the actual text values, instead gives an encoded macro string.
-                ImGui.TextUnformatted($"Our current job is ({localPlayer.ClassJob.RowId}) \"{localPlayer.ClassJob.Value.Abbreviation.ExtractText()}\"");
-
-                // Example for quarrying Lumina directly, getting the name of our current area.
-                var territoryId = Plugin.ClientState.TerritoryType;
-                if (Plugin.DataManager.GetExcelSheet<TerritoryType>().TryGetRow(territoryId, out var territoryRow))
+                if (!fishingManager.IsInValidRoute)
                 {
-                    ImGui.TextUnformatted($"We are currently in ({territoryId}) \"{territoryRow.PlaceName.Value.Name.ExtractText()}\"");
+                    ImGui.TextColored(new Vector4(1, 0.5f, 0, 1), "Cannot start: Not in an ocean fishing zone");
                 }
-                else
+                else if (!config.EnableAutomation)
                 {
-                    ImGui.TextUnformatted("Invalid territory.");
+                    ImGui.TextColored(new Vector4(1, 0.5f, 0, 1), "Cannot start: Automation is disabled in settings");
                 }
             }
+        }
+
+        private void DrawSettingsTab()
+        {
+            ImGui.Text("Enable Automation:");
+            bool enable = config.EnableAutomation;
+            if (ImGui.Checkbox("##EnableAutomation", ref enable))
+            {
+                config.EnableAutomation = enable;
+                config.Save();
+            }
+
+            ImGui.TextDisabled("Toggle automation on/off globally");
+            ImGui.Spacing();
+
+            ImGui.Text("Use Auto-Mooch:");
+            bool autoMooch = config.UseAutoMooch;
+            if (ImGui.Checkbox("##UseAutoMooch", ref autoMooch))
+            {
+                config.UseAutoMooch = autoMooch;
+                config.Save();
+            }
+
+            ImGui.TextDisabled("Automatically mooch when a suitable fish is caught");
+            ImGui.Spacing();
+
+            ImGui.Text("Auto-Chum on Full GP:");
+            bool autoChum = config.UseAutoChumOnFullGP;
+            if (ImGui.Checkbox("##UseAutoChum", ref autoChum))
+            {
+                config.UseAutoChumOnFullGP = autoChum;
+                config.Save();
+            }
+
+            ImGui.TextDisabled("Automatically use Chum when GP is near full");
+            ImGui.Spacing();
+
+            ImGui.Text("GP Full Threshold:");
+            int gpThreshold = config.GPFullThreshold;
+            if (ImGui.SliderInt("##GPFullThreshold", ref gpThreshold, 0, 800, "%d GP"))
+            {
+                config.GPFullThreshold = gpThreshold < 0 ? 0 : gpThreshold;
+                config.Save();
+            }
+
+            ImGui.TextDisabled("GP threshold to consider as 'full' for auto-chum");
+            ImGui.Spacing();
+
+            // Save current route for persistence
+            if (ImGui.Button("Save Current Route as Default", new Vector2(250, 24)))
+            {
+                config.LastUsedRoute = fishingManager.CurrentRoute.RouteShortName;
+                config.Save();
+                ImGui.OpenPopup("RouteSaved");
+            }
+
+            if (ImGui.BeginPopup("RouteSaved"))
+            {
+                ImGui.Text("Route saved as default!");
+                ImGui.EndPopup();
+            }
+
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.BeginTooltip();
+                ImGui.Text("Saves the current route as default for the next time you start the plugin");
+                ImGui.EndTooltip();
+            }
+        }
+
+        public void Dispose()
+        {
+            // Dispose resources if needed.
         }
     }
 }
