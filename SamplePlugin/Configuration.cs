@@ -20,6 +20,16 @@ namespace OceanFishingAutomator
         // Last used route (for persistence, if desired).
         public string LastUsedRoute { get; set; } = string.Empty;
 
+        // Spectral current settings
+        // Automatically switch to spectral bait when a spectral current starts.
+        public bool AutoSwitchToSpectralBait { get; set; } = true;
+        // Automatically switch back to normal bait when a spectral current ends.
+        public bool AutoSwitchToNormalBait { get; set; } = true;
+        // Play a sound alert when a spectral current starts.
+        public bool PlaySpectralAlert { get; set; } = true;
+        // Format string for chat alert when spectral current starts.
+        public string SpectralAlertFormat { get; set; } = "[Ocean Fishing] Spectral current active! {0} seconds remaining.";
+
         public void Save()
         {
             Plugin.PluginInterface.SavePluginConfig(this);

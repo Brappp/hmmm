@@ -50,6 +50,10 @@ namespace OceanFishingAutomator.UI
             if (fishingManager.IsInValidRoute)
             {
                 ImGui.TextColored(new Vector4(0, 1, 0, 1), "✓ In valid ocean fishing zone");
+
+                // Zone time remaining
+                ImGui.SameLine(ImGui.GetWindowWidth() - 100);
+                ImGui.Text($"Time: {fishingManager.GetZoneTimeRemaining()}");
             }
             else
             {
@@ -60,8 +64,24 @@ namespace OceanFishingAutomator.UI
 
             // Route information
             ImGui.Text($"Current Route: {fishingManager.CurrentRoute.RouteName}");
-            ImGui.Text($"Normal Bait: {fishingManager.CurrentRoute.NormalBait}");
-            ImGui.Text($"Spectral Bait: {fishingManager.CurrentRoute.SpectralBait}");
+
+            // Spectral current status
+            if (fishingManager.IsSpectralActive)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.4f, 0.6f, 1.0f, 1.0f), $"[SPECTRAL ACTIVE - {fishingManager.GetSpectralTimeRemaining()}]");
+            }
+
+            // Bait information
+            if (fishingManager.IsSpectralActive)
+            {
+                ImGui.Text($"Current Bait: Spectral Bait ({fishingManager.CurrentRoute.SpectralBait})");
+            }
+            else
+            {
+                ImGui.Text($"Normal Bait: {fishingManager.CurrentRoute.NormalBait}");
+                ImGui.Text($"Spectral Bait: {fishingManager.CurrentRoute.SpectralBait}");
+            }
 
             ImGui.Separator();
 

@@ -4,6 +4,7 @@ using Dalamud.Plugin;
 using Dalamud.Interface.Windowing;
 using Dalamud.Logging;
 using OceanFishingAutomator.UI;
+using OceanFishingAutomator.SeFunctions;
 using System;
 using Dalamud.Game;
 using Dalamud.Plugin.Services;
@@ -20,12 +21,14 @@ namespace OceanFishingAutomator
         [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
         [PluginService] internal static IPluginLog Log { get; private set; } = null!;
         [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
+        [PluginService] internal static IFramework Framework { get; private set; } = null!;
 
         public Configuration Configuration { get; init; }
         public WindowSystem WindowSystem { get; init; } = new("OceanFishingAutomator");
 
         private MainWindow mainWindow;
         private FishingManager fishingManager;
+        private RouteTracker routeTracker;
 
         private const string CommandName = "/oceanfish";
 
@@ -33,6 +36,9 @@ namespace OceanFishingAutomator
         {
             Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             Configuration.Save();
+
+            // Initialize route tracker
+            routeTracker = new RouteTracker(Framework);
 
             // Initialize the fishing automation logic with the SigScanner.
             fishingManager = new FishingManager(Configuration, SigScanner);
@@ -74,6 +80,7 @@ namespace OceanFishingAutomator
             PluginInterface.UiBuilder.OpenMainUi -= ToggleUI;
             WindowSystem.RemoveAllWindows();
             fishingManager.Dispose();
+            routeTracker.Dispose();
         }
     }
 }

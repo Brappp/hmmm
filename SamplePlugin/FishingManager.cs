@@ -2,10 +2,10 @@ using System;
 using System.Timers;
 using OceanFishingAutomator.Definitions;
 using OceanFishingAutomator.SeFunctions;
-using Dalamud.Plugin.Services;
 // Alias to ensure we use the TugType from SeFunctions.
 using TugType = OceanFishingAutomator.SeFunctions.TugType;
 using Dalamud.Game;
+using Dalamud.Plugin.Services;
 
 namespace OceanFishingAutomator
 {
@@ -44,6 +44,12 @@ namespace OceanFishingAutomator
         // Flag to indicate if player is in a valid fishing route
         public bool IsInValidRoute { get; private set; } = false;
 
+        // Flag to indicate if a spectral current is active
+        public bool IsSpectralActive => routeTracker?.IsSpectralActive ?? false;
+
+        // Route and spectral tracking
+        private readonly RouteTracker routeTracker;
+
         // Instance to read tug from memory.
         private readonly TugReader tugReader;
         private readonly IClientState clientState;
@@ -59,6 +65,11 @@ namespace OceanFishingAutomator
             CurrentRoute = Routes.GetDefaultRoute();
             tugReader = new TugReader(sigScanner);
             clientState = Plugin.ClientState;
+            routeTracker = new RouteTracker(Plugin.Framework);
+
+            // Subscribe to route tracker events
+            routeTracker.OnRouteOrZoneChanged += OnRouteOrZoneChanged;
+            routeTracker.OnSpectralStatusChanged += OnSpectralStatusChanged;
 
             updateTimer = new Timer(1000); // 1-second interval
             updateTimer.Elapsed += OnUpdate;
@@ -101,28 +112,87 @@ namespace OceanFishingAutomator
         }
 
         /// <summary>
+        /// Handler for route or zone changes
+        /// </summary>
+        private void OnRouteOrZoneChanged(uint routeId, byte zoneIndex)
+        {
+            // Update the current route based on the route ID
+            CurrentRoute = Routes.GetRouteByIndex(routeId);
+            Plugin.Log.Debug($"Route changed to {CurrentRoute.RouteName}, zone {zoneIndex + 1}");
+
+            // Update UI to show the new route information
+            CurrentActionStatus = $"Now at {CurrentRoute.RouteName}, zone {zoneIndex + 1}";
+        }
+
+        /// <summary>
+        /// Handler for spectral current status changes
+        /// </summary>
+        private void OnSpectralStatusChanged(bool isSpectralActive)
+        {
+            if (isSpectralActive)
+            {
+                Plugin.Log.Debug("Spectral current started");
+                CurrentActionStatus = "Spectral current active! Switching to spectral bait...";
+
+                // Could auto-switch bait here
+                CurrentBaitId = CurrentRoute.SpectralBait;
+            }
+            else
+            {
+                Plugin.Log.Debug("Spectral current ended");
+                CurrentActionStatus = "Spectral current ended. Reverting to normal bait...";
+
+                // Could auto-switch bait here
+                CurrentBaitId = CurrentRoute.NormalBait;
+            }
+        }
+
+        /// <summary>
         /// Checks if the player is currently in a valid fishing route.
         /// </summary>
         public void CheckCurrentRoute()
         {
-            // This is a stub method - in a real implementation, you would:
-            // 1. Check the player's current zone ID
-            // 2. Match it against known ocean fishing zones
-            // For now, we'll set it to true for testing
+            // Check if we have valid ocean fishing information
+            var isValid = routeTracker.CurrentRoute > 0;
 
-            // Example implementation:
-            // uint currentZoneId = clientState.TerritoryType;
-            // IsInValidRoute = currentZoneId == 900 || currentZoneId == 901; // Example zone IDs
-
-            // Placeholder implementation:
-            IsInValidRoute = true;
-
-            if (IsInValidRoute)
+            // Only update if the state has changed
+            if (isValid != IsInValidRoute)
             {
-                // Find the matching route based on the zone ID
-                // For now, just use the default route
-                CurrentRoute = Routes.GetDefaultRoute();
+                IsInValidRoute = isValid;
+
+                if (IsInValidRoute)
+                {
+                    CurrentRoute = Routes.GetRouteByIndex(routeTracker.CurrentRoute);
+                    CurrentActionStatus = $"Entered {CurrentRoute.RouteName}, zone {routeTracker.CurrentZone + 1}";
+                    Plugin.Log.Debug($"Entered valid ocean fishing route: {CurrentRoute.RouteName}");
+                }
+                else
+                {
+                    CurrentActionStatus = "Not in ocean fishing.";
+                    Plugin.Log.Debug("Exited ocean fishing route.");
+
+                    if (IsAutomationRunning)
+                    {
+                        StopAutomation();
+                    }
+                }
             }
+        }
+
+        /// <summary>
+        /// Gets the formatted spectral time remaining.
+        /// </summary>
+        public string GetSpectralTimeRemaining()
+        {
+            return routeTracker.GetFormattedSpectralTime();
+        }
+
+        /// <summary>
+        /// Gets the formatted time left in zone.
+        /// </summary>
+        public string GetZoneTimeRemaining()
+        {
+            return routeTracker.GetFormattedZoneTime();
         }
 
         /// <summary>
@@ -215,6 +285,7 @@ namespace OceanFishingAutomator
         {
             updateTimer?.Stop();
             updateTimer?.Dispose();
+            routeTracker?.Dispose();
         }
     }
 }
